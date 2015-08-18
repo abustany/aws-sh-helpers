@@ -1,0 +1,67 @@
+#!/bin/sh
+
+set -e
+
+ACCOUNT=$1
+USERNAME=$2
+
+if [ -z "$ACCOUNT" -o -z "$USERNAME" ]; then
+	echo "Usage: rotate-aws-keys ACCOUNT USERNAME"
+	echo ""
+	echo "Rotates the AWS API keys for the user USERNAME in account ACCOUNT, and writes"
+	echo "a the credentials to a file in ~/.local/aws-credentials-ACCOUNT.conf suitable"
+	echo "for sourcing in a shell (for example using the awsaccount command)."
+	exit 1
+fi
+
+if ! which jq >/dev/null 2>&1 ; then
+	echo "jq does not seem to be installed on this machine!"
+	echo ""
+	echo "Download it from https://github.com/stedolan/jq/releases and make sure"
+	echo "it is executable and in your PATH."
+	exit 1
+fi
+
+AWS_FUNCTIONS="$HOME/.local/share/aws-functions.sh"
+
+if [ ! -f "$AWS_FUNCTIONS" ]; then
+	echo "Can't find the aws-functions.sh file! It should be in $AWS_FUNCTIONS ."
+	exit 1
+fi
+
+source "$AWS_FUNCTIONS"
+
+source $HOME/.bashrc
+
+awsaccount $ACCOUNT
+
+OLD_ACCESS_KEYS=$(aws iam list-access-keys --user-name $USERNAME | jq -r '.AccessKeyMetadata[] | .AccessKeyId | @text')
+
+echo "Creating new access key..."
+
+CREATE_KEY_OUTPUT=$(mktemp rotate-aws-keys-XXXXXX)
+
+aws iam create-access-key --user-name $USERNAME > $CREATE_KEY_OUTPUT
+
+NEW_ACCESS_KEY_ID=$(jq -r '.AccessKey | .AccessKeyId | @text' $CREATE_KEY_OUTPUT)
+NEW_SECRET_ACCESS_KEY=$(jq -r '.AccessKey | .SecretAccessKey | @text' $CREATE_KEY_OUTPUT)
+
+rm "$CREATE_KEY_OUTPUT"
+
+echo "New access key ID: $NEW_ACCESS_KEY_ID"
+
+CREDENTIALS_FILENAME="$HOME/.config/aws-credentials-${ACCOUNT}.conf"
+echo "Writing $CREDENTIALS_FILENAME ..."
+
+cat >$CREDENTIALS_FILENAME <<EOF
+AWS_ACCESS_KEY="$NEW_ACCESS_KEY_ID"
+AWS_SECRET_KEY="$NEW_SECRET_ACCESS_KEY"
+EOF
+
+for key in $OLD_ACCESS_KEYS; do
+	echo "Deleting old access key $key"
+	aws iam delete-access-key --user-name $USERNAME --access-key-id $key
+done
+
+echo ""
+echo "Don't forget to load the new keys in your environment by running 'awsaccount $ACCOUNT' !"
