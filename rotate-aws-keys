@@ -31,8 +31,6 @@ fi
 
 source "$AWS_FUNCTIONS"
 
-source $HOME/.bashrc
-
 awsaccount $ACCOUNT
 
 OLD_ACCESS_KEYS=$(aws iam list-access-keys --user-name $USERNAME | jq -r '.AccessKeyMetadata[] | .AccessKeyId | @text')
